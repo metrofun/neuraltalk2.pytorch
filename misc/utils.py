@@ -40,6 +40,7 @@ class LanguageModelCriterion(nn.Module):
     def __init__(self):
         super(LanguageModelCriterion, self).__init__()
 
+    @profile
     def forward(self, input, target, mask):
         # truncate to the same size
         target = target[:, :input.size(1)]

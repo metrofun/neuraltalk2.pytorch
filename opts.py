@@ -42,7 +42,7 @@ def parse_opt():
                     help='number of epochs')
     parser.add_argument('--batch_size', type=int, default=16,
                     help='minibatch size')
-    parser.add_argument('--truncated_bptt_stride', type=int, default=512,
+    parser.add_argument('--truncated_bptt_stride', type=int, default=768,
                     help='truncated bptt stride size')
     parser.add_argument('--grad_clip', type=float, default=0.1, #5.,
                     help='clip gradients at this value')

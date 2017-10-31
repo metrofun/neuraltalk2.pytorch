@@ -29,6 +29,7 @@ def add_summary_value(writer, key, value, iteration):
     summary = tf.Summary(value=[tf.Summary.Value(tag=key, simple_value=value)])
     writer.add_summary(summary, iteration)
 
+@profile
 def train(opt):
     opt.use_att = utils.if_use_att(opt.caption_model)
     loader = DataLoader(opt)
@@ -66,7 +67,7 @@ def train(opt):
         best_val_score = infos.get('best_val_score', None)
 
     model = models.setup(opt)
-    model.cuda()
+    model.cuda().half()
 
     update_lr_flag = True
     # Assure in training mode
@@ -105,9 +106,13 @@ def train(opt):
         torch.cuda.synchronize()
         start = time.time()
 
-        tmp = [data['fc_feats'], data['att_feats'], data['labels'], data['masks']]
-        tmp = [Variable(torch.from_numpy(_), requires_grad=False).cuda() for _ in tmp]
-        fc_feats, att_feats, labels, masks = tmp
+        # Using half precision for faster conversion
+        fc_feats = Variable(torch.from_numpy(data['fc_feats'])).cuda().half()
+        att_feats = Variable(torch.from_numpy(data['att_feats'])).cuda().half()
+        # LongTensor
+        labels = Variable(torch.from_numpy(data['labels'])).cuda()
+        masks = Variable(torch.from_numpy(data['masks'])).cuda().half()
+
         
         # Truncated BPTT
         # TODO Unbiased Truncated BPTT
@@ -115,14 +120,15 @@ def train(opt):
         train_loss = 0
         for i in range(0, labels.size(1), truncated_bptt_stride):
             optimizer.zero_grad()
-            # TODO before target sequence and mask were shifted by 1
             labels_slice = labels[:, i:i + truncated_bptt_stride]
             masks_slice = masks[:, i:i + truncated_bptt_stride]
-            loss = crit(model(fc_feats, att_feats, labels_slice, i > 0), labels_slice, masks_slice)
+            outputs = model(fc_feats, att_feats, labels_slice, i > 0)
+            loss = crit(outputs, labels_slice, masks_slice)
             loss.backward()
             utils.clip_gradient(optimizer, opt.grad_clip)
             optimizer.step()
-            train_loss += loss.data[0]
+            # TODO too slow gpu-cpu?
+            # train_loss += loss.data[0]
 
         torch.cuda.synchronize()
         end = time.time()

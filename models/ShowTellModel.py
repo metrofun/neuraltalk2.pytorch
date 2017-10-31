@@ -47,6 +47,7 @@ class ShowTellModel(CaptionModel):
         else:
             return Variable(weight.new(self.num_layers, bsz, self.rnn_size).zero_())
 
+    @profile
     def forward(self, fc_feats, att_feats, seq, keep_state = False):
         assert(keep_state is False or self.state is not None)
 
@@ -77,8 +78,9 @@ class ShowTellModel(CaptionModel):
                 else:
                     it = seq[:, i-1].clone()                
                 # break if all the sequences end
-                if i >= 2 and seq[:, i-1].data.sum() == 0:
-                    break
+                # TODO currently slow
+                # if i >= 2 and seq[:, i-1].data.sum() == 0:
+                    # break
                 xt = self.embed(it)
 
             output, self.state = self.core(xt.unsqueeze(0), self.state)
