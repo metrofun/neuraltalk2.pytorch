@@ -27,7 +27,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import pdb
 import os
+import hashlib
+import multiprocessing
+import contextlib
+from functools import partial
+import tqdm
 import json
 import argparse
 from random import shuffle, seed
@@ -40,8 +46,36 @@ import torchvision.models as models
 from torch.autograd import Variable
 import skimage.io
 
-def build_vocab(imgs, params):
+def create_img(svg_dir, img_dir, img_filename):
+  svg_filename = img_filename[:-4]
+  try:
+    with open(os.path.join(svg_dir, svg_filename), 'r') as f:
+      return {
+        'sentences': [{'tokens': list(f.read())}],
+        'filepath': img_dir,
+        'split': np.random.choice(['train', 'test', 'val'], p=[0.9, 0.05, 0.05]),
+        'id': img_filename,
+        'filename': img_filename
+      }
+  except Exception as e:
+    print('Failed processing {} with {}'.format(svg_filename, e))
+
+
+def build_vocab(params):
   count_thr = params['word_count_threshold']
+  svg_dir = params['input_svg_dir']
+  img_dir = params['input_img_dir']
+
+  # Because svg xan exist, by an image does not. walk through png img
+  filenames  = []
+  for (dirpath, dirnames, filenames) in os.walk(img_dir):
+    # f.extend(filenames)
+    break
+
+  pool = multiprocessing.Pool(8)
+  imgs = tqdm.tqdm(pool.imap_unordered(partial(create_img, svg_dir, img_dir), filenames), total=len(filenames))
+  # Filter out empty image descriptor due to failed svg io
+  imgs = list(filter(None.__ne__, imgs))
 
   # count up the number of words
   counts = {}
@@ -74,8 +108,8 @@ def build_vocab(imgs, params):
   print('max length sentence in raw data: ', max_len)
   print('sentence length distribution (count, number of words):')
   sum_len = sum(sent_lengths.values())
-  for i in range(max_len+1):
-    print('%2d: %10d   %f%%' % (i, sent_lengths.get(i,0), sent_lengths.get(i,0)*100.0/sum_len))
+  # for i in range(max_len+1):
+    # print('%2d: %10d   %f%%' % (i, sent_lengths.get(i,0), sent_lengths.get(i,0)*100.0/sum_len))
 
   # lets now produce the final annotations
   if bad_count > 0:
@@ -90,7 +124,7 @@ def build_vocab(imgs, params):
       caption = [w if counts.get(w,0) > count_thr else 'UNK' for w in txt]
       img['final_captions'].append(caption)
 
-  return vocab
+  return vocab, imgs
 
 def encode_captions(imgs, params, wtoi):
   """ 
@@ -137,14 +171,11 @@ def encode_captions(imgs, params, wtoi):
   return L, label_start_ix, label_end_ix, label_length
 
 def main(params):
-
-  imgs = json.load(open(params['input_json'], 'r'))
-  imgs = imgs['images']
-
   seed(123) # make reproducible
   
   # create the vocab
-  vocab = build_vocab(imgs, params)
+  # vocab = build_vocab(imgs, params)
+  vocab,imgs = build_vocab(params)
   itow = {i+1:w for i,w in enumerate(vocab)} # a 1-indexed vocab translation table
   wtoi = {w:i+1 for i,w in enumerate(vocab)} # inverse table
   
@@ -169,7 +200,7 @@ def main(params):
     jimg = {}
     jimg['split'] = img['split']
     if 'filename' in img: jimg['file_path'] = os.path.join(img['filepath'], img['filename']) # copy it over, might need
-    if 'cocoid' in img: jimg['id'] = img['cocoid'] # copy over & mantain an id, if present (e.g. coco ids, useful)
+    if 'id' in img: jimg['id'] = img['id'] # copy over & mantain an id, if present (e.g. coco ids, useful)
     
     out['images'].append(jimg)
   
@@ -181,7 +212,8 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser()
 
   # input json
-  parser.add_argument('--input_json', required=True, help='input json file to process into hdf5')
+  parser.add_argument('--input_svg_dir', required=True, help='Input directory containing only svg files')
+  parser.add_argument('--input_img_dir', required=True, help='Input directory containing only img files')
   parser.add_argument('--output_json', default='data.json', help='output json file')
   parser.add_argument('--output_h5', default='data', help='output h5 file')
 
