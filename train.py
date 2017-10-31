@@ -109,12 +109,21 @@ def train(opt):
         tmp = [Variable(torch.from_numpy(_), requires_grad=False).cuda() for _ in tmp]
         fc_feats, att_feats, labels, masks = tmp
         
-        optimizer.zero_grad()
-        loss = crit(model(fc_feats, att_feats, labels), labels[:,1:], masks[:,1:])
-        loss.backward()
-        utils.clip_gradient(optimizer, opt.grad_clip)
-        optimizer.step()
-        train_loss = loss.data[0]
+        # Truncated BPTT
+        # TODO Unbiased Truncated BPTT
+        truncated_bptt_stride = opt.truncated_bptt_stride
+        train_loss = 0
+        for i in range(0, labels.size(1), truncated_bptt_stride):
+            optimizer.zero_grad()
+            # TODO before target sequence and mask were shifted by 1
+            labels_slice = labels[:, i:i + truncated_bptt_stride]
+            masks_slice = masks[:, i:i + truncated_bptt_stride]
+            loss = crit(model(fc_feats, att_feats, labels_slice, i > 0), labels_slice, masks_slice)
+            loss.backward()
+            utils.clip_gradient(optimizer, opt.grad_clip)
+            optimizer.step()
+            train_loss += loss.data[0]
+
         torch.cuda.synchronize()
         end = time.time()
         print("iter {} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \

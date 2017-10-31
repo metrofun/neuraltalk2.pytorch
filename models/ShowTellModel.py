@@ -29,6 +29,7 @@ class ShowTellModel(CaptionModel):
         self.embed = nn.Embedding(self.vocab_size + 1, self.input_encoding_size)
         self.logit = nn.Linear(self.rnn_size, self.vocab_size + 1)
         self.dropout = nn.Dropout(self.drop_prob_lm)
+        self.state = None
 
         self.init_weights()
 
@@ -46,10 +47,15 @@ class ShowTellModel(CaptionModel):
         else:
             return Variable(weight.new(self.num_layers, bsz, self.rnn_size).zero_())
 
-    def forward(self, fc_feats, att_feats, seq):
+    def forward(self, fc_feats, att_feats, seq, keep_state = False):
+        assert(keep_state is False or self.state is not None)
+
         batch_size = fc_feats.size(0)
-        state = self.init_hidden(batch_size)
         outputs = []
+        if keep_state:
+            self.state = self.repackage_hidden(self.state)
+        else:
+            self.state = self.init_hidden(batch_size)
 
         for i in range(seq.size(1)):
             if i == 0:
@@ -75,11 +81,18 @@ class ShowTellModel(CaptionModel):
                     break
                 xt = self.embed(it)
 
-            output, state = self.core(xt.unsqueeze(0), state)
+            output, self.state = self.core(xt.unsqueeze(0), self.state)
             output = F.log_softmax(self.logit(self.dropout(output.squeeze(0))))
             outputs.append(output)
 
-        return torch.cat([_.unsqueeze(1) for _ in outputs[1:]], 1).contiguous()
+        return torch.cat([_.unsqueeze(1) for _ in outputs], 1).contiguous()
+
+    def repackage_hidden(self, h):
+        """Wraps hidden states in new Variables, to detach them from their history."""
+        if type(h) == Variable:
+            return Variable(h.data)
+        else:
+            return tuple(self.repackage_hidden(v) for v in h)
 
     def get_logprobs_state(self, it, state):
         # 'it' is Variable contraining a word index
